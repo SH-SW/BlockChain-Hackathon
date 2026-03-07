@@ -1,0 +1,73 @@
+const { ethers } = require("hardhat");
+
+async function main() {
+  const [deployer] = await ethers.getSigners();
+
+  // On Sepolia/mainnet you only have 1 signer — set Party B's wallet address here
+  // If not set, a random wallet is generated for testing (save the private key!)
+  let PARTY_B_ADDRESS = process.env.PARTY_B_ADDRESS;
+  let partyBWallet;
+  if (!PARTY_B_ADDRESS) {
+    partyBWallet = ethers.Wallet.createRandom();
+    PARTY_B_ADDRESS = partyBWallet.address;
+    console.log("⚠️  No PARTY_B_ADDRESS set — generated a random wallet for Party B");
+  }
+
+  // Generate independent ECDSA key pairs (separate from wallet signers)
+  const ecdsaA = ethers.Wallet.createRandom();
+  const ecdsaB = ethers.Wallet.createRandom();
+
+  const amountA = ethers.parseEther("0.01");
+  const amountB = ethers.parseEther("0.02");
+  const commitPeriodDays = 1;
+  const revealPeriodHours = 1;
+
+  console.log("Deploying BilateralAgreement...");
+  console.log("  Party A (deployer):", deployer.address);
+  console.log("  Party B:          ", PARTY_B_ADDRESS);
+  console.log("  ECDSA Key A:      ", ecdsaA.address);
+  console.log("  ECDSA Key B:      ", ecdsaB.address);
+  console.log("  Amount A:         ", ethers.formatEther(amountA), "ETH");
+  console.log("  Amount B:         ", ethers.formatEther(amountB), "ETH");
+  console.log("  Commit period:    ", commitPeriodDays, "day(s)");
+  console.log("  Reveal period:    ", revealPeriodHours, "hour(s)");
+
+  const BilateralAgreement = await ethers.getContractFactory("BilateralAgreement", deployer);
+  const contract = await BilateralAgreement.deploy(
+    PARTY_B_ADDRESS,
+    ecdsaA.address,
+    ecdsaB.address,
+    amountA,
+    amountB,
+    commitPeriodDays,
+    revealPeriodHours
+  );
+
+  await contract.waitForDeployment();
+  const address = await contract.getAddress();
+
+  console.log("\n✅ Contract deployed at:", address);
+  if (partyBWallet) {
+    console.log("\n⚠️  SAVE Party B wallet private key (needed to interact as Party B):");
+    console.log("  Party B Private Key:", partyBWallet.privateKey);
+  }
+  console.log("\n⚠️  SAVE THESE ECDSA PRIVATE KEYS (needed for signing decisions):");
+  console.log("  ECDSA Private Key A:", ecdsaA.privateKey);
+  console.log("  ECDSA Private Key B:", ecdsaB.privateKey);
+
+  console.log("\nTimelines:");
+  console.log("  Commit window opens:", new Date(Number(await contract.commitWindowStart()) * 1000).toISOString());
+  console.log("  Commit deadline:    ", new Date(Number(await contract.commitDeadline()) * 1000).toISOString());
+  console.log("  Reveal deadline:    ", new Date(Number(await contract.revealDeadline()) * 1000).toISOString());
+
+  console.log("\nNext steps:");
+  console.log("  1. Both parties call depositFunds() with their amounts");
+  console.log("  2. During commit window, both call commitHash(hash)");
+  console.log("  3. After commit deadline, both call revealDecision(decision, v, r, s, salt)");
+  console.log("  4. After reveal deadline, anyone calls executeContract()");
+}
+
+main().catch((error) => {
+  console.error(error);
+  process.exitCode = 1;
+});
