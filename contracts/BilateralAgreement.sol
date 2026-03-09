@@ -3,6 +3,7 @@ pragma solidity ^0.8.20;
 
 /// @title BilateralAgreement
 /// @notice Commit-reveal bilateral agreement with ECDSA verification.
+///   Deposit = 10% of each party's transaction amount, used as a penalty guarantee.
 ///   Phases: Deploy → Deposit → Commit (last hour) → Reveal → Execute
 contract BilateralAgreement {
 
@@ -13,10 +14,12 @@ contract BilateralAgreement {
     address public publicKeyA; // Independent ECDSA address for A
     address public publicKeyB; // Independent ECDSA address for B
 
-    uint256 public amountA;
-    uint256 public amountB;
-    uint256 public depositedA;
-    uint256 public depositedB;
+    uint256 public amountA;    // Total transaction amount for A
+    uint256 public amountB;    // Total transaction amount for B
+    uint256 public depositA;   // 10% of amountA (security deposit)
+    uint256 public depositB;   // 10% of amountB (security deposit)
+    uint256 public depositedA; // Actual ETH deposited by A
+    uint256 public depositedB; // Actual ETH deposited by B
 
     uint256 public commitDeadline;
     uint256 public commitWindowStart;
@@ -61,21 +64,26 @@ contract BilateralAgreement {
         partyB = _partyB;
         amountA = _amountA;
         amountB = _amountB;
-        mediator = _mediator;
-        status = Status.Created;
+        depositA = _amountA / 10; // 10% security deposit
+        depositB = _amountB / 10; // 10% security deposit
+        require(depositA > 0 && depositB > 0, "Amounts too small for 10% deposit");
+
+        commitDeadline = block.timestamp + (_commitPeriodDays * 1 days);
+        commitWindowStart = commitDeadline - 1 hours;
+        revealDeadline = commitDeadline + (_revealPeriodHours * 1 hours);
     }
 
-    /// @notice Phase 1: Each party deposits their required amount.
+    /// @notice Phase 1: Each party deposits 10% of their transaction amount as security.
     function depositFunds() external payable onlyParties {
         require(status == Status.Created, "Not in deposit phase");
 
         if (msg.sender == partyA) {
             require(depositedA == 0, "Already deposited");
-            require(msg.value == amountA, "Wrong amount");
+            require(msg.value == depositA, "Wrong amount");
             depositedA = msg.value;
         } else {
             require(depositedB == 0, "Already deposited");
-            require(msg.value == amountB, "Wrong amount");
+            require(msg.value == depositB, "Wrong amount");
             depositedB = msg.value;
         }
 
@@ -140,7 +148,11 @@ contract BilateralAgreement {
         emit DecisionRevealed(msg.sender, _decision == 1);
     }
 
-    /// @notice Phase 4: Anyone calls after reveal deadline. Swaps funds or refunds.
+    /// @notice Phase 4: Anyone calls after reveal deadline.
+    ///   Both accept    → each recovers their deposit (agreement fulfilled)
+    ///   One rejects    → rejector LOSES deposit to the other party (penalty)
+    ///   Neither accepts→ each recovers their own (mutual disagreement)
+    ///   Non-participation → each recovers their own
     function executeContract() external nonReentrant {
         require(block.timestamp > revealDeadline, "Reveal not ended");
         require(
@@ -149,7 +161,10 @@ contract BilateralAgreement {
             "Already finalized"
         );
 
-        bool bothAccepted = revealedA && revealedB && decisionA && decisionB;
+        bool aAccepted = revealedA && decisionA;
+        bool bAccepted = revealedB && decisionB;
+        bool bothAccepted = aAccepted && bAccepted;
+
         status = bothAccepted ? Status.Executed : Status.Failed;
 
         uint256 _dA = depositedA;
@@ -158,11 +173,19 @@ contract BilateralAgreement {
         depositedB = 0;
 
         if (bothAccepted) {
-            _transfer(partyA, _dB); // A gets B's deposit
-            _transfer(partyB, _dA); // B gets A's deposit
+            // Both accepted → each recovers their own deposit
+            _transfer(partyA, _dA);
+            _transfer(partyB, _dB);
+        } else if (aAccepted && !bAccepted) {
+            // A honored the agreement, B did not → A gets both deposits
+            _transfer(partyA, _dA + _dB);
+        } else if (!aAccepted && bAccepted) {
+            // B honored the agreement, A did not → B gets both deposits
+            _transfer(partyB, _dA + _dB);
         } else {
-            _transfer(partyA, _dA); // Refund A
-            _transfer(partyB, _dB); // Refund B
+            // Mutual disagreement or non-participation → each recovers their own
+            _transfer(partyA, _dA);
+            _transfer(partyB, _dB);
         }
 
         emit ContractExecuted(bothAccepted);

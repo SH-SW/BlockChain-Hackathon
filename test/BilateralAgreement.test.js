@@ -379,7 +379,7 @@ describe("BilateralAgreement", function () {
       const commitWindowStart = await contract.commitWindowStart();
       await time.increaseTo(commitWindowStart);
 
-      const decA = 1, decB = 1;
+      const decA = 0, decB = 1;
       const sigA = await signDecision(ecdsaA, decA);
       const sigB = await signDecision(ecdsaB, decB);
       const saltA = ethers.hexlify(ethers.randomBytes(32));
@@ -585,3 +585,4 @@ describe("BilateralAgreement", function () {
     });
   });
 });
+
