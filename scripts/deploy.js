@@ -13,58 +13,26 @@ async function main() {
     console.log("⚠️  No PARTY_B_ADDRESS set — generated a random wallet for Party B");
   }
 
-  // Generate independent ECDSA key pairs (separate from wallet signers)
-  const ecdsaA = ethers.Wallet.createRandom();
-  const ecdsaB = ethers.Wallet.createRandom();
-
-  const amountA = ethers.parseEther("0.01");
-  const amountB = ethers.parseEther("0.02");
-  const commitPeriodDays = 1;
-  const revealPeriodHours = 1;
-
-  console.log("Deploying BilateralAgreement...");
-  console.log("  Party A (deployer):", deployer.address);
-  console.log("  Party B:          ", PARTY_B_ADDRESS);
-  console.log("  ECDSA Key A:      ", ecdsaA.address);
-  console.log("  ECDSA Key B:      ", ecdsaB.address);
-  console.log("  Amount A:         ", ethers.formatEther(amountA), "ETH");
-  console.log("  Amount B:         ", ethers.formatEther(amountB), "ETH");
-  console.log("  Commit period:    ", commitPeriodDays, "day(s)");
-  console.log("  Reveal period:    ", revealPeriodHours, "hour(s)");
+  // Updated deployment script to use user's address as mediator for testing
+  const mediatorAddress = deployer.address; // Using deployer's address as mediator for testing
 
   const BilateralAgreement = await ethers.getContractFactory("BilateralAgreement", deployer);
   const contract = await BilateralAgreement.deploy(
     PARTY_B_ADDRESS,
-    ecdsaA.address,
-    ecdsaB.address,
     amountA,
     amountB,
-    commitPeriodDays,
-    revealPeriodHours
+    mediatorAddress
   );
 
   await contract.waitForDeployment();
   const address = await contract.getAddress();
 
-  console.log("\n✅ Contract deployed at:", address);
+  console.log("\n\u2705 Contract deployed at:", address);
+  console.log("  Mediator:         ", mediatorAddress);
+
   if (partyBWallet) {
-    console.log("\n⚠️  SAVE Party B wallet private key (needed to interact as Party B):");
-    console.log("  Party B Private Key:", partyBWallet.privateKey);
+    console.log("\u26a0\ufe0f Save Party B's private key:", partyBWallet.privateKey);
   }
-  console.log("\n⚠️  SAVE THESE ECDSA PRIVATE KEYS (needed for signing decisions):");
-  console.log("  ECDSA Private Key A:", ecdsaA.privateKey);
-  console.log("  ECDSA Private Key B:", ecdsaB.privateKey);
-
-  console.log("\nTimelines:");
-  console.log("  Commit window opens:", new Date(Number(await contract.commitWindowStart()) * 1000).toISOString());
-  console.log("  Commit deadline:    ", new Date(Number(await contract.commitDeadline()) * 1000).toISOString());
-  console.log("  Reveal deadline:    ", new Date(Number(await contract.revealDeadline()) * 1000).toISOString());
-
-  console.log("\nNext steps:");
-  console.log("  1. Both parties call depositFunds() with their amounts");
-  console.log("  2. During commit window, both call commitHash(hash)");
-  console.log("  3. After commit deadline, both call revealDecision(decision, v, r, s, salt)");
-  console.log("  4. After reveal deadline, anyone calls executeContract()");
 }
 
 main().catch((error) => {

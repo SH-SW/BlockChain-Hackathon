@@ -20,27 +20,24 @@ function computeCommitHash(decision, r, s, v, salt) {
 async function deployFixture() {
   const [deployer, userB, thirdParty] = await ethers.getSigners();
 
-  // Independent ECDSA wallets (separate from MetaMask/Hardhat signers)
-  const ecdsaA = ethers.Wallet.createRandom();
-  const ecdsaB = ethers.Wallet.createRandom();
-
   const amountA = ethers.parseEther("1.0");
   const amountB = ethers.parseEther("2.0");
-  const commitDays = 1;   // 1 day for faster testing
-  const revealHours = 1;  // 1 hour reveal
+  const mediator = deployer.address; // Use deployer as mediator for testing
 
   const BilateralAgreement = await ethers.getContractFactory("BilateralAgreement", deployer);
   const contract = await BilateralAgreement.deploy(
     userB.address,
-    ecdsaA.address,
-    ecdsaB.address,
     amountA,
     amountB,
-    commitDays,
-    revealHours
+    mediator
   );
 
-  return { contract, deployer, userB, thirdParty, ecdsaA, ecdsaB, amountA, amountB, commitDays, revealHours };
+  return { contract, deployer, userB, thirdParty, amountA, amountB, mediator };
+}
+
+// Fix timestamp-related errors in tests
+function increaseTimeTo(targetTime) {
+  return time.increaseTo(targetTime);
 }
 
 describe("BilateralAgreement", function () {
@@ -153,14 +150,15 @@ describe("BilateralAgreement", function () {
   // ═══════════════════════════════════════════════════════════════
   describe("Phase 2: Commit", function () {
     it("should reject commit before window opens", async function () {
-      const { contract, deployer, userB, amountA, amountB } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, userB } = await loadFixture(deployFixture);
 
-      const fakeHash = ethers.keccak256(ethers.toUtf8Bytes("test"));
-      await expect(
-        contract.connect(deployer).commitHash(fakeHash)
-      ).to.be.revertedWith("Window not open");
+      const commitWindowStart = await contract.commitWindowStart();
+      await expect(contract.connect(userB).commitHash(ethers.constants.HashZero))
+        .to.be.revertedWith("Window not open");
+
+      await increaseTimeTo(commitWindowStart);
+      await expect(contract.connect(userB).commitHash(ethers.constants.HashZero))
+        .to.be.revertedWith("Empty hash");
     });
 
     it("should accept commit during window", async function () {
