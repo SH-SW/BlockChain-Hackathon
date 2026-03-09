@@ -3,15 +3,8 @@ const { ethers } = require("hardhat");
 async function main() {
   const [deployer] = await ethers.getSigners();
 
-  // On Sepolia/mainnet you only have 1 signer — set Party B's wallet address here
-  // If not set, a random wallet is generated for testing (save the private key!)
-  let PARTY_B_ADDRESS = process.env.PARTY_B_ADDRESS;
-  let partyBWallet;
-  if (!PARTY_B_ADDRESS) {
-    partyBWallet = ethers.Wallet.createRandom();
-    PARTY_B_ADDRESS = partyBWallet.address;
-    console.log("⚠️  No PARTY_B_ADDRESS set — generated a random wallet for Party B");
-  }
+  // Party B's wallet address
+  const PARTY_B_ADDRESS = "0x23614fB677117e6D58088c02FBF8db548ca8E54A";
 
   // Generate independent ECDSA key pairs (separate from wallet signers)
   const ecdsaA = ethers.Wallet.createRandom();
@@ -47,10 +40,6 @@ async function main() {
   const address = await contract.getAddress();
 
   console.log("\n✅ Contract deployed at:", address);
-  if (partyBWallet) {
-    console.log("\n⚠️  SAVE Party B wallet private key (needed to interact as Party B):");
-    console.log("  Party B Private Key:", partyBWallet.privateKey);
-  }
   console.log("\n⚠️  SAVE THESE ECDSA PRIVATE KEYS (needed for signing decisions):");
   console.log("  ECDSA Private Key A:", ecdsaA.privateKey);
   console.log("  ECDSA Private Key B:", ecdsaB.privateKey);
