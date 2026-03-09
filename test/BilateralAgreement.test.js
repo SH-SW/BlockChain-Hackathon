@@ -24,8 +24,10 @@ async function deployFixture() {
   const ecdsaA = ethers.Wallet.createRandom();
   const ecdsaB = ethers.Wallet.createRandom();
 
-  const amountA = ethers.parseEther("1.0");
-  const amountB = ethers.parseEther("2.0");
+  const amountA = ethers.parseEther("10.0"); // Total transaction amount
+  const amountB = ethers.parseEther("20.0"); // Total transaction amount
+  const depositAmountA = amountA / 10n;       // 10% = 1 ETH
+  const depositAmountB = amountB / 10n;       // 10% = 2 ETH
   const commitDays = 1;   // 1 day for faster testing
   const revealHours = 1;  // 1 hour reveal
 
@@ -40,7 +42,7 @@ async function deployFixture() {
     revealHours
   );
 
-  return { contract, deployer, userB, thirdParty, ecdsaA, ecdsaB, amountA, amountB, commitDays, revealHours };
+  return { contract, deployer, userB, thirdParty, ecdsaA, ecdsaB, amountA, amountB, depositAmountA, depositAmountB, commitDays, revealHours };
 }
 
 describe("BilateralAgreement", function () {
@@ -50,7 +52,7 @@ describe("BilateralAgreement", function () {
   // ═══════════════════════════════════════════════════════════════
   describe("Phase 0: Deployment", function () {
     it("should deploy with correct initial state", async function () {
-      const { contract, deployer, userB, ecdsaA, ecdsaB, amountA, amountB } = await deployFixture();
+      const { contract, deployer, userB, ecdsaA, ecdsaB, amountA, amountB, depositAmountA, depositAmountB } = await deployFixture();
 
       expect(await contract.partyA()).to.equal(deployer.address);
       expect(await contract.partyB()).to.equal(userB.address);
@@ -58,6 +60,8 @@ describe("BilateralAgreement", function () {
       expect(await contract.publicKeyB()).to.equal(ecdsaB.address);
       expect(await contract.amountA()).to.equal(amountA);
       expect(await contract.amountB()).to.equal(amountB);
+      expect(await contract.depositA()).to.equal(depositAmountA);
+      expect(await contract.depositB()).to.equal(depositAmountB);
       expect(await contract.status()).to.equal(0); // Created
     });
 
@@ -101,27 +105,27 @@ describe("BilateralAgreement", function () {
   //  PHASE 1: DEPOSITS
   // ═══════════════════════════════════════════════════════════════
   describe("Phase 1: Deposits", function () {
-    it("should accept correct deposit from Party A", async function () {
-      const { contract, deployer, amountA } = await deployFixture();
-      await expect(contract.connect(deployer).depositFunds({ value: amountA }))
+    it("should accept correct deposit from Party A (10% of amountA)", async function () {
+      const { contract, deployer, depositAmountA } = await deployFixture();
+      await expect(contract.connect(deployer).depositFunds({ value: depositAmountA }))
         .to.emit(contract, "FundsDeposited")
-        .withArgs(deployer.address, amountA);
-      expect(await contract.depositedA()).to.equal(amountA);
+        .withArgs(deployer.address, depositAmountA);
+      expect(await contract.depositedA()).to.equal(depositAmountA);
       expect(await contract.status()).to.equal(0); // Still Created (B hasn't deposited)
     });
 
-    it("should accept correct deposit from Party B", async function () {
-      const { contract, userB, amountB } = await deployFixture();
-      await expect(contract.connect(userB).depositFunds({ value: amountB }))
+    it("should accept correct deposit from Party B (10% of amountB)", async function () {
+      const { contract, userB, depositAmountB } = await deployFixture();
+      await expect(contract.connect(userB).depositFunds({ value: depositAmountB }))
         .to.emit(contract, "FundsDeposited")
-        .withArgs(userB.address, amountB);
-      expect(await contract.depositedB()).to.equal(amountB);
+        .withArgs(userB.address, depositAmountB);
+      expect(await contract.depositedB()).to.equal(depositAmountB);
     });
 
     it("should transition to Deposited when both deposit", async function () {
-      const { contract, deployer, userB, amountA, amountB } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, depositAmountA, depositAmountB } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
       expect(await contract.status()).to.equal(1); // Deposited
     });
 
@@ -133,10 +137,10 @@ describe("BilateralAgreement", function () {
     });
 
     it("should reject double deposit", async function () {
-      const { contract, deployer, amountA } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
+      const { contract, deployer, depositAmountA } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
       await expect(
-        contract.connect(deployer).depositFunds({ value: amountA })
+        contract.connect(deployer).depositFunds({ value: depositAmountA })
       ).to.be.revertedWith("Already deposited");
     });
 
@@ -153,9 +157,9 @@ describe("BilateralAgreement", function () {
   // ═══════════════════════════════════════════════════════════════
   describe("Phase 2: Commit", function () {
     it("should reject commit before window opens", async function () {
-      const { contract, deployer, userB, amountA, amountB } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, depositAmountA, depositAmountB } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       const fakeHash = ethers.keccak256(ethers.toUtf8Bytes("test"));
       await expect(
@@ -164,9 +168,9 @@ describe("BilateralAgreement", function () {
     });
 
     it("should accept commit during window", async function () {
-      const { contract, deployer, userB, amountA, amountB, ecdsaA } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, depositAmountA, depositAmountB, ecdsaA } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       // Fast-forward to commit window (1 hour before deadline)
       const commitWindowStart = await contract.commitWindowStart();
@@ -186,9 +190,9 @@ describe("BilateralAgreement", function () {
     });
 
     it("should reject commit after deadline", async function () {
-      const { contract, deployer, userB, amountA, amountB } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, depositAmountA, depositAmountB } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       const commitDeadline = await contract.commitDeadline();
       await time.increaseTo(commitDeadline + 1n);
@@ -200,9 +204,9 @@ describe("BilateralAgreement", function () {
     });
 
     it("should reject empty hash", async function () {
-      const { contract, deployer, userB, amountA, amountB } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, depositAmountA, depositAmountB } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       const commitWindowStart = await contract.commitWindowStart();
       await time.increaseTo(commitWindowStart);
@@ -213,9 +217,9 @@ describe("BilateralAgreement", function () {
     });
 
     it("should reject double commit", async function () {
-      const { contract, deployer, userB, amountA, amountB } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, depositAmountA, depositAmountB } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       const commitWindowStart = await contract.commitWindowStart();
       await time.increaseTo(commitWindowStart);
@@ -235,9 +239,9 @@ describe("BilateralAgreement", function () {
   // ═══════════════════════════════════════════════════════════════
   describe("Phase 3: Reveal", function () {
     it("should reject reveal before commit deadline", async function () {
-      const { contract, deployer, userB, amountA, amountB } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, depositAmountA, depositAmountB } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       await expect(
         contract.connect(deployer).revealDecision(1, 27, ethers.ZeroHash, ethers.ZeroHash, ethers.ZeroHash)
@@ -245,9 +249,9 @@ describe("BilateralAgreement", function () {
     });
 
     it("should verify and accept a valid reveal", async function () {
-      const { contract, deployer, userB, amountA, amountB, ecdsaA } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, depositAmountA, depositAmountB, ecdsaA } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       // Commit phase
       const commitWindowStart = await contract.commitWindowStart();
@@ -272,9 +276,9 @@ describe("BilateralAgreement", function () {
     });
 
     it("should reject reveal with wrong salt (hash mismatch)", async function () {
-      const { contract, deployer, userB, amountA, amountB, ecdsaA } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, depositAmountA, depositAmountB, ecdsaA } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       const commitWindowStart = await contract.commitWindowStart();
       await time.increaseTo(commitWindowStart);
@@ -295,9 +299,9 @@ describe("BilateralAgreement", function () {
     });
 
     it("should reject reveal with wrong decision (hash mismatch)", async function () {
-      const { contract, deployer, userB, amountA, amountB, ecdsaA } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, depositAmountA, depositAmountB, ecdsaA } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       const commitWindowStart = await contract.commitWindowStart();
       await time.increaseTo(commitWindowStart);
@@ -318,9 +322,9 @@ describe("BilateralAgreement", function () {
     });
 
     it("should reject reveal with forged signature (wrong ECDSA key)", async function () {
-      const { contract, deployer, userB, amountA, amountB } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, depositAmountA, depositAmountB } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       // Use a rogue wallet (not the registered publicKeyA)
       const rogueWallet = ethers.Wallet.createRandom();
@@ -344,9 +348,9 @@ describe("BilateralAgreement", function () {
     });
 
     it("should reject reveal after reveal deadline", async function () {
-      const { contract, deployer, userB, amountA, amountB, ecdsaA } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, depositAmountA, depositAmountB, ecdsaA } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       const commitWindowStart = await contract.commitWindowStart();
       await time.increaseTo(commitWindowStart);
@@ -370,12 +374,12 @@ describe("BilateralAgreement", function () {
   //  PHASE 4: EXECUTION
   // ═══════════════════════════════════════════════════════════════
   describe("Phase 4: Execute — Both Accept", function () {
-    it("should swap funds when both accept", async function () {
-      const { contract, deployer, userB, ecdsaA, ecdsaB, amountA, amountB } = await deployFixture();
+    it("should return each party their own deposit when both accept", async function () {
+      const { contract, deployer, userB, ecdsaA, ecdsaB, depositAmountA, depositAmountB } = await deployFixture();
 
-      // Deposits
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      // Deposits (10% of transaction amounts)
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       // Commit
       const commitWindowStart = await contract.commitWindowStart();
@@ -417,18 +421,18 @@ describe("BilateralAgreement", function () {
       const balAAfter = await ethers.provider.getBalance(deployer.address);
       const balBAfter = await ethers.provider.getBalance(userB.address);
 
-      // A received B's deposit (2 ETH), B received A's deposit (1 ETH)
-      expect(balAAfter - balABefore).to.equal(amountB);
-      expect(balBAfter - balBBefore).to.equal(amountA);
+      // Each party recovers their own 10% deposit
+      expect(balAAfter - balABefore).to.equal(depositAmountA);
+      expect(balBAfter - balBBefore).to.equal(depositAmountB);
     });
   });
 
-  describe("Phase 4: Execute — Disagreement", function () {
-    it("should refund both when A accepts but B rejects", async function () {
-      const { contract, deployer, userB, ecdsaA, ecdsaB, amountA, amountB } = await deployFixture();
+  describe("Phase 4: Execute — Disagreement (Penalty)", function () {
+    it("should give A both deposits when A accepts but B rejects", async function () {
+      const { contract, deployer, userB, ecdsaA, ecdsaB, depositAmountA, depositAmountB } = await deployFixture();
 
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       const commitWindowStart = await contract.commitWindowStart();
       await time.increaseTo(commitWindowStart);
@@ -461,17 +465,61 @@ describe("BilateralAgreement", function () {
       const balAAfter = await ethers.provider.getBalance(deployer.address);
       const balBAfter = await ethers.provider.getBalance(userB.address);
 
-      // A gets back their 1 ETH (minus gas), B gets back their 2 ETH
-      expect(balBAfter - balBBefore).to.equal(amountB);
-      // A's balance change = amountA - gasCost, so it should be close to amountA
-      expect(balAAfter - balABefore).to.be.closeTo(amountA, ethers.parseEther("0.01"));
+      // A honored the agreement → A gets both deposits (penalty on B)
+      expect(balAAfter - balABefore).to.be.closeTo(depositAmountA + depositAmountB, ethers.parseEther("0.01"));
+      // B gets nothing (lost deposit as penalty)
+      expect(balBAfter - balBBefore).to.equal(0n);
+    });
+
+    it("should give B both deposits when B accepts but A rejects", async function () {
+      const { contract, deployer, userB, ecdsaA, ecdsaB, depositAmountA, depositAmountB } = await deployFixture();
+
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
+
+      const commitWindowStart = await contract.commitWindowStart();
+      await time.increaseTo(commitWindowStart);
+
+      const decA = 0, decB = 1; // A rejects, B accepts
+      const sigA = await signDecision(ecdsaA, decA);
+      const sigB = await signDecision(ecdsaB, decB);
+      const saltA = ethers.hexlify(ethers.randomBytes(32));
+      const saltB = ethers.hexlify(ethers.randomBytes(32));
+
+      await contract.connect(deployer).commitHash(computeCommitHash(decA, sigA.r, sigA.s, sigA.v, saltA));
+      await contract.connect(userB).commitHash(computeCommitHash(decB, sigB.r, sigB.s, sigB.v, saltB));
+
+      const commitDeadline = await contract.commitDeadline();
+      await time.increaseTo(commitDeadline + 1n);
+
+      await contract.connect(deployer).revealDecision(decA, sigA.v, sigA.r, sigA.s, saltA);
+      await contract.connect(userB).revealDecision(decB, sigB.v, sigB.r, sigB.s, saltB);
+
+      const revealDeadline = await contract.revealDeadline();
+      await time.increaseTo(revealDeadline + 1n);
+
+      const balABefore = await ethers.provider.getBalance(deployer.address);
+      const balBBefore = await ethers.provider.getBalance(userB.address);
+
+      const [,,thirdParty] = await ethers.getSigners();
+      await contract.connect(thirdParty).executeContract();
+
+      expect(await contract.status()).to.equal(5); // Failed
+
+      const balAAfter = await ethers.provider.getBalance(deployer.address);
+      const balBAfter = await ethers.provider.getBalance(userB.address);
+
+      // B honored the agreement → B gets both deposits (penalty on A)
+      expect(balBAfter - balBBefore).to.equal(depositAmountA + depositAmountB);
+      // A gets nothing (lost deposit as penalty)
+      expect(balAAfter - balABefore).to.equal(0n);
     });
 
     it("should refund when no one commits (non-participation)", async function () {
-      const { contract, deployer, userB, amountA, amountB } = await deployFixture();
+      const { contract, deployer, userB, depositAmountA, depositAmountB } = await deployFixture();
 
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       // Skip straight to after reveal deadline
       const revealDeadline = await contract.revealDeadline();
@@ -485,10 +533,10 @@ describe("BilateralAgreement", function () {
     });
 
     it("should refund when only A commits and reveals", async function () {
-      const { contract, deployer, userB, ecdsaA, amountA, amountB } = await deployFixture();
+      const { contract, deployer, userB, ecdsaA, depositAmountA, depositAmountB } = await deployFixture();
 
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       const commitWindowStart = await contract.commitWindowStart();
       await time.increaseTo(commitWindowStart);
@@ -512,9 +560,9 @@ describe("BilateralAgreement", function () {
 
   describe("Phase 4: Execute — Edge Cases", function () {
     it("should reject execute before reveal deadline", async function () {
-      const { contract, deployer, userB, amountA, amountB } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, depositAmountA, depositAmountB } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       await expect(
         contract.connect(deployer).executeContract()
@@ -522,9 +570,9 @@ describe("BilateralAgreement", function () {
     });
 
     it("should reject double execution", async function () {
-      const { contract, deployer, userB, amountA, amountB } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, depositAmountA, depositAmountB } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       const revealDeadline = await contract.revealDeadline();
       await time.increaseTo(revealDeadline + 1n);
@@ -552,9 +600,9 @@ describe("BilateralAgreement", function () {
   // ═══════════════════════════════════════════════════════════════
   describe("Security", function () {
     it("should prevent non-party from committing", async function () {
-      const { contract, deployer, userB, thirdParty, amountA, amountB } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, thirdParty, depositAmountA, depositAmountB } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       const commitWindowStart = await contract.commitWindowStart();
       await time.increaseTo(commitWindowStart);
@@ -574,9 +622,9 @@ describe("BilateralAgreement", function () {
     });
 
     it("should allow anyone to execute (no privilege required)", async function () {
-      const { contract, deployer, userB, thirdParty, amountA, amountB } = await deployFixture();
-      await contract.connect(deployer).depositFunds({ value: amountA });
-      await contract.connect(userB).depositFunds({ value: amountB });
+      const { contract, deployer, userB, thirdParty, depositAmountA, depositAmountB } = await deployFixture();
+      await contract.connect(deployer).depositFunds({ value: depositAmountA });
+      await contract.connect(userB).depositFunds({ value: depositAmountB });
 
       const revealDeadline = await contract.revealDeadline();
       await time.increaseTo(revealDeadline + 1n);
@@ -587,3 +635,4 @@ describe("BilateralAgreement", function () {
     });
   });
 });
+
