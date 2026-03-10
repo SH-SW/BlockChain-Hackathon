@@ -135,12 +135,32 @@ async function main() {
   console.log();
 
   // ─── SUMMARY ───
+  const aAccepted = decA === 1;
+  const bAccepted = decB === 1;
+  const bothAccepted = aAccepted && bAccepted;
+
   console.log("═══════════════════════════════════════════════");
   console.log("  RESULT SUMMARY");
   console.log("═══════════════════════════════════════════════");
-  console.log("  Both accepted?", await contract.decisionA() && await contract.decisionB() ? "YES ✅" : "NO ❌");
-  console.log("  Party A balance change:", ethers.formatEther(balA_after - balA_preExec), "ETH (deposit returned minus gas)");
-  console.log("  Party B balance change:", ethers.formatEther(balB_after - balB_preExec), "ETH (deposit returned)");
+  console.log("  Party A decision:", aAccepted ? "ACCEPT ✅" : "REJECT ❌");
+  console.log("  Party B decision:", bAccepted ? "ACCEPT ✅" : "REJECT ❌");
+  console.log("  Outcome:", bothAccepted ? "AGREEMENT REACHED ✅" : "AGREEMENT FAILED ❌");
+  console.log();
+
+  if (bothAccepted) {
+    console.log("  → Both deposits returned to their owners.");
+  } else if (aAccepted && !bAccepted) {
+    console.log("  → Party B rejected: B's deposit (", ethers.formatEther(depositB), "ETH) transferred to A as penalty.");
+  } else if (!aAccepted && bAccepted) {
+    console.log("  → Party A rejected: A's deposit (", ethers.formatEther(depositA), "ETH) transferred to B as penalty.");
+  } else {
+    console.log("  → Mutual disagreement: both deposits returned.");
+  }
+  console.log();
+
+  console.log("  Party A balance change:", ethers.formatEther(balA_after - balA_before), "ETH");
+  console.log("  Party B balance change:", ethers.formatEther(balB_after - balB_before), "ETH");
+  console.log("  Contract balance:", ethers.formatEther(await ethers.provider.getBalance(addr)), "ETH");
   console.log("  Contract drained?", (await ethers.provider.getBalance(addr)) === 0n ? "YES ✅" : "NO ❌");
   console.log();
 }

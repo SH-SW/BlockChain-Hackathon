@@ -40,7 +40,6 @@ contract BilateralAgreement {
     event DecisionRevealed(address indexed party, bool decision);
     event ContractExecuted(bool bothAccepted);
     event FundsReturned(address indexed party, uint256 amount);
-    event DeliveryConfirmed(address indexed mediator);
 
     modifier onlyParties() {
         require(msg.sender == partyA || msg.sender == partyB, "Not a party");
@@ -56,12 +55,23 @@ contract BilateralAgreement {
 
     constructor(
         address _partyB,
+        address _publicKeyA,
+        address _publicKeyB,
         uint256 _amountA,
         uint256 _amountB,
-        address _mediator
+        uint256 _commitPeriodDays,
+        uint256 _revealPeriodHours
     ) {
+        require(_partyB != address(0) && _partyB != msg.sender, "Invalid partyB");
+        require(_publicKeyA != address(0) && _publicKeyB != address(0), "Invalid keys");
+        require(_amountA > 0 && _amountB > 0, "Amounts must be > 0");
+        require(_commitPeriodDays >= 1 && _commitPeriodDays <= 7, "1-7 days");
+        require(_revealPeriodHours >= 1 && _revealPeriodHours <= 48, "1-48 hours");
+
         partyA = msg.sender;
         partyB = _partyB;
+        publicKeyA = _publicKeyA;
+        publicKeyB = _publicKeyB;
         amountA = _amountA;
         amountB = _amountB;
         depositA = _amountA / 10; // 10% security deposit
@@ -196,28 +206,5 @@ contract BilateralAgreement {
         (bool ok, ) = payable(_to).call{value: _amount}("");
         require(ok, "Transfer failed");
         emit FundsReturned(_to, _amount);
-    }
-
-    // Remove commit-reveal scheme and replace with escrow logic
-    address public mediator; // Trusted third-party mediator
-    bool public deliveryConfirmed;
-
-    modifier onlyMediator() {
-        require(msg.sender == mediator, "Not the mediator");
-        _;
-    }
-
-    function confirmDelivery() external onlyMediator {
-        require(status == Status.Deposited, "Invalid status");
-        deliveryConfirmed = true;
-        status = Status.Executed;
-        payable(partyB).transfer(amountA + amountB);
-    }
-
-    function dispute() external onlyParties {
-        require(status == Status.Deposited, "Invalid status");
-        status = Status.Failed;
-        payable(partyA).transfer(amountA);
-        payable(partyB).transfer(amountB);
     }
 }
